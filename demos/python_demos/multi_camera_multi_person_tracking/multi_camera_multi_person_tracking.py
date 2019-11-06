@@ -26,6 +26,7 @@ from mc_tracker.mct import MultiCameraTracker
 from utils.misc import read_py_config
 from utils.video import MulticamCapture
 from utils.visualization import visualize_multicam_detections
+from openvino.inference_engine import IECore # pylint: disable=import-error,E0611
 
 log.basicConfig(stream=sys.stdout, level=log.DEBUG)
 
@@ -80,17 +81,19 @@ def run(params, capture, detector, reid):
         if frames is None:
             continue
 
-        all_detections = detector.get_detections(frames)
-        all_masks = [[] for _ in range(len(all_detections))]
-        for i, detections in enumerate(all_detections):
-            all_detections[i] = [det[0] for det in detections]
-            all_masks[i] = [det[2] for det in detections if len(det) == 3]
+        #all_detections = detector.get_detections(frames)
+        #all_masks = [[] for _ in range(len(all_detections))]
+        #for i, detections in enumerate(all_detections):
+        #    all_detections[i] = [det[0] for det in detections]
+        #    all_masks[i] = [det[2] for det in detections if len(det) == 3]
 
-        tracker.process(frames, all_detections, all_masks)
-        tracked_objects = tracker.get_tracked_objects()
+        #tracker.process(frames, all_detections, all_masks)
+        #tracked_objects = tracker.get_tracked_objects()
+        tracked_objects = [[] for _ in range(len(frames))]
 
         fps = round(1 / (time.time() - start), 1)
         vis = visualize_multicam_detections(frames, tracked_objects, fps)
+        cv.namedWindow(win_name, cv.WINDOW_NORMAL) 
         cv.imshow(win_name, vis)
         if output_video:
             output_video.write(cv.resize(vis, video_output_size))
@@ -132,12 +135,13 @@ def main():
     args = parser.parse_args()
 
     capture = MulticamCapture(args.i)
+    ie = IECore()
 
-    person_detector = Detector(args.m_detector, args.t_detector,
-                               args.device, args.cpu_extension,
+    person_detector = Detector(ie, args.m_detector, args.t_detector,
+                               'CPU', args.cpu_extension,
                                capture.get_num_sources())
     if args.m_reid:
-        person_recognizer = VectorCNN(args.m_reid, args.device)
+        person_recognizer = VectorCNN(ie, args.m_reid, args.device)
     else:
         person_recognizer = None
     run(args, capture, person_detector, person_recognizer)
