@@ -80,18 +80,20 @@ def run(params, capture, detector, reid):
 
         if frames is None:
             continue
+        start2 = time.time()
+        all_detections = detector.get_detections(frames)
+        diff = time.time() - start2
+        all_masks = [[] for _ in range(len(all_detections))]
+        for i, detections in enumerate(all_detections):
+            all_detections[i] = [det[0] for det in detections]
+            all_masks[i] = [det[2] for det in detections if len(det) == 3]
 
-        #all_detections = detector.get_detections(frames)
-        #all_masks = [[] for _ in range(len(all_detections))]
-        #for i, detections in enumerate(all_detections):
-        #    all_detections[i] = [det[0] for det in detections]
-        #    all_masks[i] = [det[2] for det in detections if len(det) == 3]
+        tracker.process(frames, all_detections, all_masks)
+        tracked_objects = tracker.get_tracked_objects()
+        #tracked_objects = [[] for _ in range(len(frames))]
 
-        #tracker.process(frames, all_detections, all_masks)
-        #tracked_objects = tracker.get_tracked_objects()
-        tracked_objects = [[] for _ in range(len(frames))]
-
-        fps = round(1 / (time.time() - start), 1)
+        fps = round(1 / (time.time() - start) - diff, 1)
+        print(diff)
         vis = visualize_multicam_detections(frames, tracked_objects, fps)
         cv.namedWindow(win_name, cv.WINDOW_NORMAL) 
         cv.imshow(win_name, vis)

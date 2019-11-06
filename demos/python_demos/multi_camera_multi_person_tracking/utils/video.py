@@ -13,6 +13,7 @@
 
 import logging as log
 import cv2 as cv
+import time
 
 
 class MulticamCapture:
@@ -39,7 +40,7 @@ class MulticamCapture:
         else:
             for video_path in sources:
                 log.info('Opening file {}'.format(video_path))
-                #cap = cv.VideoCapture(video_path, cv.CAP_INTEL_MFX)
+                # cap = cv.VideoCapture(video_path)
                 cap = cv.VideoCapture(video_path, cv.CAP_INTEL_MFX)
                 assert cap.isOpened()
                 self.captures.append(cap)
@@ -47,7 +48,9 @@ class MulticamCapture:
     def get_frames(self):
         frames = []
         for capture in self.captures:
+            start = time.time()
             has_frame, frame = capture.read()
+            #print(time.time() - start)
             if has_frame:
                 frames.append(frame)
 
