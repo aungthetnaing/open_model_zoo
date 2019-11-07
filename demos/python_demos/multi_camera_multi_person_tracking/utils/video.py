@@ -40,8 +40,8 @@ class MulticamCapture:
         else:
             for video_path in sources:
                 log.info('Opening file {}'.format(video_path))
-                # cap = cv.VideoCapture(video_path)
-                cap = cv.VideoCapture(video_path, cv.CAP_INTEL_MFX)
+                cap = cv.VideoCapture(video_path)
+                #cap = cv.VideoCapture(video_path, cv.CAP_INTEL_MFX)
                 assert cap.isOpened()
                 self.captures.append(cap)
 

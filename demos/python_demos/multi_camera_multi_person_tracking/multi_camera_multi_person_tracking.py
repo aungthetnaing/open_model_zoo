@@ -31,12 +31,15 @@ from openvino.inference_engine import IECore # pylint: disable=import-error,E061
 log.basicConfig(stream=sys.stdout, level=log.DEBUG)
 
 class SingleCameraRunThreadBody:
-    def __init__(self, capture, tracker, detector, index):
+    def __init__(self, capture, tracker, index, params, ie):
         self.process = True
         self.capture = capture
         self.tracker = tracker
         self.camIndex = index
-        self.detector = detector
+        self.detector = Detector(ie, params.m_detector, params.t_detector,
+                               'CPU', params.cpu_extension,
+                               capture.get_num_sources())
+
 
     def __call__(self):
         thread_body = FramesThreadBodySingle(self.capture, self.camIndex)
@@ -53,6 +56,7 @@ class SingleCameraRunThreadBody:
                 continue
             start2 = time.time()
             all_detections = self.detector.get_detection(frame)
+            all_detections = [det[0] for det in all_detections]
             diff = time.time() - start2
             self.tracker.process_single_frame(frame, all_detections, self.camIndex)
             tracked_objects = self.tracker.get_tracked_objects_singlecam(self.camIndex)
@@ -106,17 +110,17 @@ class FramesThreadBodySingle:
                 self.frames_queue.put(frames)
 
 
-def run(params, capture, detector, reid):
+def run(params, capture, ie):
     win_name = 'Multi camera tracking'
     config = {}
     if len(params.config):
         config = read_py_config(params.config)
 
-    tracker = MultiCameraTracker(capture.get_num_sources(), reid, **config)
+    tracker = MultiCameraTracker(ie, capture.get_num_sources(), params, **config)
     thread_bodies = []
     frames_threads = []
     for i in range(capture.get_num_sources()):
-        thread_body = SingleCameraRunThreadBody(capture, tracker, detector, i)
+        thread_body = SingleCameraRunThreadBody(capture, tracker, i, params, ie)
         thread_bodies.append(thread_body)
         frames_thread = Thread(target=thread_body)
         frames_thread.start()
@@ -156,14 +160,8 @@ def main():
     capture = MulticamCapture(args.i)
     ie = IECore()
 
-    person_detector = Detector(ie, args.m_detector, args.t_detector,
-                               'CPU', args.cpu_extension,
-                               capture.get_num_sources())
-    if args.m_reid:
-        person_recognizer = VectorCNN(ie, args.m_reid, args.device)
-    else:
-        person_recognizer = None
-    run(args, capture, person_detector, person_recognizer)
+
+    run(args, capture, ie)
     log.info('Demo finished successfully')
 
 

@@ -16,12 +16,14 @@ import queue
 import numpy as np
 import threading
 from scipy.spatial.distance import cosine
+import time
+from utils.network_wrappers import Detector, VectorCNN
 
 from .sct import SingleCameraTracker, clusters_distance, THE_BIGGEST_DISTANCE
 
 
 class MultiCameraTracker:
-    def __init__(self, num_sources, reid_model,
+    def __init__(self, ie, num_sources, args,
                  sct_config={},
                  time_window=20,
                  global_match_thresh=0.35
@@ -33,9 +35,13 @@ class MultiCameraTracker:
         self.time_window = time_window  # should be greater than time window in scts
         self.global_match_thresh = global_match_thresh
         for i in range(num_sources):
+            if args.m_reid:
+                person_recognizer = VectorCNN(ie, args.m_reid, args.device)
+            else:
+                person_recognizer = None
             self.scts.append(SingleCameraTracker(i, self._get_next_global_id,
                                                  self._release_global_id,
-                                                 reid_model, **sct_config))
+                                                 person_recognizer, **sct_config))
         self.all_tracks = []
         self.lock = threading.Lock()
 
@@ -70,6 +76,7 @@ class MultiCameraTracker:
          self.scts[streamIdx].process(frame, detections, masks)
          if self.time % (self.time_window * len(self.scts)) <= 2 * len(self.scts):
              self.lock.acquire()
+             print("Lock in " + str(streamIdx))
              self.all_tracks += self.scts[streamIdx].get_tracks()
              if self.time > 0 and self.time % (self.time_window * len(self.scts)) == 0:
                 distance_matrix = self._compute_mct_distance_matrix(self.all_tracks)
@@ -79,12 +86,13 @@ class MultiCameraTracker:
                     if idx is not None and self.all_tracks[idx]['id'] is not None and self.all_tracks[i]['timestamps'] is not None:
                         if self.all_tracks[idx]['id'] >= self.all_tracks[i]['id']:
                             if self.all_tracks[idx]['timestamps'][0] >= self.all_tracks[i]['timestamps'][0]:
-                                self.scts[all_tracks[idx]['cam_id']].check_and_merge(self.all_tracks[i], self.all_tracks[idx])
+                                self.scts[self.all_tracks[idx]['cam_id']].check_and_merge(self.all_tracks[i], self.all_tracks[idx])
                         else:
                             if self.all_tracks[idx]['timestamps'][0] <= self.all_tracks[i]['timestamps'][0]:
                                 self.scts[self.all_tracks[i]['cam_id']].check_and_merge(self.all_tracks[idx], self.all_tracks[i])
                 self.all_tracks = []
              self.lock.release()
+             time.sleep(0) # yield
 
          self.time += 1
 
