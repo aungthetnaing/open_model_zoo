@@ -25,7 +25,7 @@ from utils.network_wrappers import Detector, VectorCNN
 from mc_tracker.mct import MultiCameraTracker
 from utils.misc import read_py_config
 from utils.video import MulticamCapture
-from utils.visualization import visualize_multicam_detections
+from utils.visualization import visualize_multicam_detections, draw_detections
 from openvino.inference_engine import IECore # pylint: disable=import-error,E0611
 
 log.basicConfig(stream=sys.stdout, level=log.DEBUG)
@@ -55,13 +55,13 @@ class SingleCameraRunThreadBody:
             all_detections = self.detector.get_detection(frame)
             diff = time.time() - start2
             self.tracker.process_single_frame(frame, all_detections, self.camIndex)
-            tracked_objects = tracker.get_tracked_objects_singlecam(self.camIndex)
+            tracked_objects = self.tracker.get_tracked_objects_singlecam(self.camIndex)
        
             fps = round(1 / (time.time() - start) - diff, 1)
             draw_detections(frame, tracked_objects)
-            win_name = 'cam ' + self.camIndex
+            win_name = 'cam ' + str(self.camIndex)
             cv.namedWindow(win_name, cv.WINDOW_NORMAL) 
-            cv.imshow(win_name, vis)
+            cv.imshow(win_name, frame)
         thread_body.process = False
         frames_thread.join()
 
