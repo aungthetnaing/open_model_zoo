@@ -30,7 +30,44 @@ from openvino.inference_engine import IECore # pylint: disable=import-error,E061
 
 log.basicConfig(stream=sys.stdout, level=log.DEBUG)
 
+class SingleCameraRunThreadBody:
+    def __init__(self, capture, tracker, detector, index):
+        self.process = True
+        self.capture = capture
+        self.tracker = tracker
+        self.camIndex = index
+        self.detector = detector
 
+    def __call__(self):
+        thread_body = FramesThreadBodySingle(self.capture, self.camIndex)
+        frames_thread = Thread(target=thread_body)
+        frames_thread.start()
+        while cv.waitKey(1) != 27 and thread_body.process and self.process:
+            start = time.time()
+            try:
+                frame = thread_body.frames_queue.get_nowait()
+            except queue.Empty:
+                frame = None
+
+            if frame is None:
+                continue
+            start2 = time.time()
+            all_detections = self.detector.get_detection(frame)
+            diff = time.time() - start2
+            self.tracker.process_single_frame(frame, all_detections, self.camIndex)
+            tracked_objects = tracker.get_tracked_objects_singlecam(self.camIndex)
+       
+            fps = round(1 / (time.time() - start) - diff, 1)
+            draw_detections(frame, tracked_objects)
+            win_name = 'cam ' + self.camIndex
+            cv.namedWindow(win_name, cv.WINDOW_NORMAL) 
+            cv.imshow(win_name, vis)
+        thread_body.process = False
+        frames_thread.join()
+
+
+
+        
 class FramesThreadBody:
     def __init__(self, capture, max_queue_length=2):
         self.process = True
@@ -49,6 +86,25 @@ class FramesThreadBody:
             if has_frames:
                 self.frames_queue.put(frames)
 
+class FramesThreadBodySingle:
+    def __init__(self, capture, index, max_queue_length=2):
+        self.process = True
+        self.frames_queue = queue.Queue()
+        self.capture = capture
+        self.max_queue_length = max_queue_length
+        self.camIndex = index
+
+    def __call__(self):
+        while self.process:
+            if self.frames_queue.qsize() > self.max_queue_length:
+                time.sleep(0.1)
+            has_frames, frames = self.capture.get_frame(self.camIndex)
+            if not has_frames and self.frames_queue.empty():
+                self.process = False
+                break
+            if has_frames:
+                self.frames_queue.put(frames)
+
 
 def run(params, capture, detector, reid):
     win_name = 'Multi camera tracking'
@@ -57,56 +113,17 @@ def run(params, capture, detector, reid):
         config = read_py_config(params.config)
 
     tracker = MultiCameraTracker(capture.get_num_sources(), reid, **config)
+    thread_bodies = []
+    frames_threads = []
+    for i in range(capture.get_num_sources()):
+        thread_body = SingleCameraRunThreadBody(capture, tracker, detector, i)
+        thread_bodies.append(thread_body)
+        frames_thread = Thread(target=thread_body)
+        frames_thread.start()
+        frames_threads.append(frames_thread)
+    for cur_thread in frames_threads:
+        cur_thread.join()
 
-    thread_body = FramesThreadBody(capture, max_queue_length=len(capture.captures) * 2)
-    frames_thread = Thread(target=thread_body)
-    frames_thread.start()
-
-    if len(params.output_video):
-        video_output_size = (1920 // capture.get_num_sources(), 1080)
-        fourcc = cv.VideoWriter_fourcc(*'XVID')
-        output_video = cv.VideoWriter(params.output_video,
-                                      fourcc, 24.0,
-                                      video_output_size)
-    else:
-        output_video = None
-
-    while cv.waitKey(1) != 27 and thread_body.process:
-        start = time.time()
-        try:
-            frames = thread_body.frames_queue.get_nowait()
-        except queue.Empty:
-            frames = None
-
-        if frames is None:
-            continue
-        start2 = time.time()
-        all_detections = detector.get_detections(frames)
-        diff = time.time() - start2
-        all_masks = [[] for _ in range(len(all_detections))]
-        for i, detections in enumerate(all_detections):
-            all_detections[i] = [det[0] for det in detections]
-            all_masks[i] = [det[2] for det in detections if len(det) == 3]
-
-        tracker.process(frames, all_detections, all_masks)
-        tracked_objects = tracker.get_tracked_objects()
-        #tracked_objects = [[] for _ in range(len(frames))]
-
-        fps = round(1 / (time.time() - start) - diff, 1)
-        print(diff)
-        vis = visualize_multicam_detections(frames, tracked_objects, fps)
-        cv.namedWindow(win_name, cv.WINDOW_NORMAL) 
-        cv.imshow(win_name, vis)
-        if output_video:
-            output_video.write(cv.resize(vis, video_output_size))
-
-    thread_body.process = False
-    frames_thread.join()
-
-    if len(params.history_file):
-        history = tracker.get_all_tracks_history()
-        with open(params.history_file, 'w') as outfile:
-            json.dump(history, outfile)
 
 
 def main():

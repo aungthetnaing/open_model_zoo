@@ -56,5 +56,9 @@ class MulticamCapture:
 
         return len(frames) == len(self.captures), frames
 
+    def get_frame(self, camIndex):
+        has_frame, frame = self.captures[camIndex].read()
+        return has_frame, frame
+
     def get_num_sources(self):
         return len(self.captures)

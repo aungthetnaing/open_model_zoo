@@ -14,6 +14,7 @@
 import queue
 
 import numpy as np
+import threading
 from scipy.spatial.distance import cosine
 
 from .sct import SingleCameraTracker, clusters_distance, THE_BIGGEST_DISTANCE
@@ -35,6 +36,8 @@ class MultiCameraTracker:
             self.scts.append(SingleCameraTracker(i, self._get_next_global_id,
                                                  self._release_global_id,
                                                  reid_model, **sct_config))
+        self.all_tracks = []
+        self.lock = threading.Lock()
 
     def process(self, frames, all_detections, masks=None):
         assert len(frames) == len(all_detections) == len(self.scts)
@@ -47,7 +50,7 @@ class MultiCameraTracker:
             sct.process(frames[i], all_detections[i], mask)
             all_tracks += sct.get_tracks()
 
-        if self.time > 0 and self.time % self.time_window == 0:
+        if self.time > 0 and self.time % (self.time_window) == 0:
             distance_matrix = self._compute_mct_distance_matrix(all_tracks)
             assignment = self._compute_greedy_assignment(distance_matrix)
 
@@ -61,6 +64,30 @@ class MultiCameraTracker:
                             self.scts[all_tracks[i]['cam_id']].check_and_merge(all_tracks[idx], all_tracks[i])
 
         self.time += 1
+
+
+    def process_single_frame(self, frame, detections, streamIdx, masks=None):
+         self.scts[streamIdx].process(frame, detections, masks)
+         if self.time % (self.time_window * len(self.scts)) <= 2 * len(self.scts):
+             self.lock.Acquire()
+             self.all_tracks += self.scts[streamIdx].get_tracks()
+             if self.time > 0 and self.time % (self.time_window * len(self.scts)) == 0:
+                distance_matrix = self._compute_mct_distance_matrix(all_tracks)
+                assignment = self._compute_greedy_assignment(distance_matrix)
+
+                for i, idx in enumerate(assignment):
+                    if idx is not None and self.all_tracks[idx]['id'] is not None and self.all_tracks[i]['timestamps'] is not None:
+                        if self.all_tracks[idx]['id'] >= self.all_tracks[i]['id']:
+                            if self.all_tracks[idx]['timestamps'][0] >= self.all_tracks[i]['timestamps'][0]:
+                                self.scts[all_tracks[idx]['cam_id']].check_and_merge(self.all_tracks[i], self.all_tracks[idx])
+                        else:
+                            if self.all_tracks[idx]['timestamps'][0] <= self.all_tracks[i]['timestamps'][0]:
+                                self.scts[self.all_tracks[i]['cam_id']].check_and_merge(self.all_tracks[idx], self.all_tracks[i])
+                self.all_tracks = []
+             self.lock.Release()
+
+         self.time += 1
+
 
     def _compute_mct_distance_matrix(self, all_tracks):
         distance_matrix = THE_BIGGEST_DISTANCE * np.eye(len(all_tracks), dtype=np.float32)
@@ -112,6 +139,9 @@ class MultiCameraTracker:
         objs = [sct.get_tracked_objects() for sct in self.scts]
 
         return objs
+
+    def get_tracked_objects_singlecam(self, camindex):
+        return self.scts[camindex].get_tracked_objects()
 
     def get_all_tracks_history(self):
         history = []

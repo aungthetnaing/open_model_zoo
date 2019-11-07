@@ -38,6 +38,12 @@ class Detector:
 
         return all_detections
 
+    def get_detection(self, frame):
+        output = self.net.forward(frame)
+
+        detections = self.__decode_detections(output, frame.shape)
+        return detections
+
     def __decode_detections(self, out, frame_shape):
         """Decodes raw SSD output"""
         detections = []
